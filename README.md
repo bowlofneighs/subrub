@@ -1,0 +1,1 @@
+Subrub is an open source voice AI assistant made in C. It uses OpenAI's Whisper model for transcription and almost any AI to answer the query. It then uses GPT 4o TTS to vocalize the answer. It will have some amount of system integration with specific user definable keywords. 
