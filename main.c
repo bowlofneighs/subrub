@@ -2,21 +2,17 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <portaudio.h>
 #include <stdint.h>
 
 
-#define SAMPLE_RATE       44100
-#define NUM_CHANNELS      1
-#define FRAMES_PER_BUFFER 512
-#define RECORD_SECONDS    5
-#define SAMPLE_FORMAT paInt16
+#define MINIAUDIO_IMPLEMENTATION
+#include <miniaudio.h>
 
-typedef int16_t SAMPLE;
 
-typedef struct{
-    
-}
+
+
+
+
 
 
 bool verbose = false;
@@ -44,7 +40,7 @@ OS os = 0;
 
 
     //inform the user that verbose mode is enabled
-    if(verbose){printf("SubRub is running in verbose mode");}
+    if(verbose){printf("SubRub is running in verbose mode\n");}
 
     //detect user OS
 
@@ -72,12 +68,22 @@ OS os = 0;
         }
     }
 
-    Pa_Initialize();
+    ma_encoder encoder;
+    ma_result result;
 
-
-
-
-
+    result = ma_encoder_init_file("recorded.wav",
+                                  ma_format_f32,
+                                  1,
+                                  44100,
+                                  NULL,
+                                  &encoder);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize encoder\n");
+        return 1;
+    }
+    else if(verbose){
+        printf("initialized encoder");
+    }
 
  }
 
