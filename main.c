@@ -3,25 +3,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <math.h>
 
 
 #define MINIAUDIO_IMPLEMENTATION
-#include <miniaudio.h>
-
-
-
-
-
-
-
-
-bool verbose = false;
+#include "miniaudio.h"
 
 typedef enum{
     os_windows = 1, os_macos = 2, os_linux = 3
 }OS;
 
+bool verbose = false;
+
 OS os = 0;
+
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+
+
+
+
 
  int main(int argc, char *argv[]){
 
@@ -58,33 +58,92 @@ OS os = 0;
 // print OS for verbose mode
     if(verbose){
         if(os == os_windows){
-            printf("Windows OS detected");
+            printf("Windows OS detected\n");
         }
         else if(os == os_macos){
-            printf("macOS detected");
+            printf("macOS detected\n");
         }
         else if(os == os_linux){
-            printf("Linux OS detected");
+            printf("Linux OS detected\n");
         }
     }
 
-    ma_encoder encoder;
-    ma_result result;
 
-    result = ma_encoder_init_file("recorded.wav",
-                                  ma_format_f32,
-                                  1,
-                                  44100,
-                                  NULL,
-                                  &encoder);
-    if (result != MA_SUCCESS) {
-        printf("Failed to initialize encoder\n");
+/*
+TIME FOR THE RECORDING PART
+TIME FOR THE RECORDING PART
+TIME FOR THE RECORDING PART
+TIME FOR THE RECORDING PART
+TIME FOR THE RECORDING PART
+TIME FOR THE RECORDING PART
+*/
+    ma_device_config deviceConfig;
+    ma_device device;
+    ma_encoder encoder;
+    ma_encoder_config encoderConfig;
+
+    encoderConfig = ma_encoder_config_init(
+        ma_encoding_format_wav,
+        ma_format_s16,
+        1,
+        44100
+
+    );
+     if (ma_encoder_init_file("recording.wav", &encoderConfig, &encoder) != MA_SUCCESS) {
+        printf("Failed to create WAV file.\n");
         return 1;
     }
-    else if(verbose){
-        printf("initialized encoder");
+    else if (verbose){
+        printf("created WAV file\n");
     }
 
- }
+
+    deviceConfig = ma_device_config_init(ma_device_type_capture);
+    deviceConfig.capture.format   = ma_format_s16;
+    deviceConfig.capture.channels = 1;
+    deviceConfig.sampleRate       = 44100;
+    deviceConfig.dataCallback     = data_callback;
+    deviceConfig.pUserData        = &encoder;
+
+     if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
+        printf("Failed to initialize capture device.\n");
+        ma_encoder_uninit(&encoder);
+        return 1;
+    }
+    else if (verbose){
+        printf("initialized capture device\n");
+    }
+
+        if (ma_device_start(&device) != MA_SUCCESS) {
+        printf("Failed to start device.\n");
+        ma_device_uninit(&device);
+        ma_encoder_uninit(&encoder);
+        return 1;
+    }
+    else if (verbose){
+        printf("Started device\n");
+    }
+        printf("press enter to stop recording\n");
+        getchar();
+
+    ma_device_uninit(&device);
+    ma_encoder_uninit(&encoder);
+
+    printf("Done.\n");
+
+
+
+
+}
+
+ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount){
+    ma_encoder* pEncoder = (ma_encoder*)pDevice->pUserData;
+
+    if (pInput != NULL) {
+        ma_encoder_write_pcm_frames(pEncoder, pInput, frameCount, NULL);
+    }
+
+    (void)pOutput; // Not used for recording
+}
 
 
