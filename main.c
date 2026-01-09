@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <curl/curl.h>
 
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -19,9 +20,9 @@ OS os = 0;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
-
-
-
+static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
+ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+int upload_to_whisper(const char *filename);
 
  int main(int argc, char *argv[]){
 
@@ -41,6 +42,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
     //inform the user that verbose mode is enabled
     if(verbose){printf("SubRub is running in verbose mode\n");}
+
 
     //detect user OS
 
@@ -124,16 +126,22 @@ TIME FOR THE RECORDING PART
         printf("Started device\n");
     }
         printf("press enter to stop recording\n");
-        getchar();
+        char buffer[10];
+            fgets(buffer, sizeof(buffer), stdin);
 
     ma_device_uninit(&device);
     ma_encoder_uninit(&encoder);
 
+        const char *api_key = getenv("OPENAI_API_KEY");
+    if (!api_key) {
+        printf("OPENAI_API_KEY not set. Please set it now: \n");
+        exit(1);
+    }
+
+    printf("Transcribing with Whisper-1\n");
+    upload_to_whisper("recording.wav");
+
     printf("Done.\n");
-
-
-
-
 }
 
  void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount){
@@ -145,5 +153,78 @@ TIME FOR THE RECORDING PART
 
     (void)pOutput; // Not used for recording
 }
+
+static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userdata){
+    fwrite(ptr, size, nmemb, stdout);
+    return size * nmemb;
+}
+
+int upload_to_whisper(const char *filename)
+{
+    CURL *curl;
+    CURLcode res;
+
+    const char *api_key = getenv("OPENAI_API_KEY");
+
+    curl = curl_easy_init();
+    if (!curl) {
+        fprintf(stderr, "Failed to init curl\n");
+        return 1;
+    }
+
+    /* ---------- headers ---------- */
+    struct curl_slist *headers = NULL;
+    char auth_header[512];
+    snprintf(auth_header, sizeof(auth_header),
+             "Authorization: Bearer %s", api_key);
+    headers = curl_slist_append(headers, auth_header);
+
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    /* ---------- multipart form ---------- */
+    curl_mime *form = curl_mime_init(curl);
+
+    curl_mimepart *part;
+
+    /* file */
+    part = curl_mime_addpart(form);
+    curl_mime_name(part, "file");
+    curl_mime_filedata(part, filename);
+
+    /* model */
+    part = curl_mime_addpart(form);
+    curl_mime_name(part, "model");
+    curl_mime_data(part, "whisper-1", CURL_ZERO_TERMINATED);
+
+    /* optional: language */
+    /*
+    part = curl_mime_addpart(form);
+    curl_mime_name(part, "language");
+    curl_mime_data(part, "en", CURL_ZERO_TERMINATED);
+    */
+
+    curl_easy_setopt(curl, CURLOPT_URL,
+        "https://api.openai.com/v1/audio/transcriptions");
+
+    curl_easy_setopt(curl, CURLOPT_MIMEPOST, form);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+
+    /* ---------- perform ---------- */
+    res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        fprintf(stderr, "curl error: %s\n", curl_easy_strerror(res));
+    }
+
+    /* ---------- cleanup ---------- */
+    curl_mime_free(form);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    return (res == CURLE_OK) ? 0 : 1;
+}
+
+
+
 
 
