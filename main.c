@@ -88,7 +88,7 @@ TIME FOR THE RECORDING PART
         ma_encoding_format_wav,
         ma_format_s16,
         1,
-        44100
+        16000
 
     );
      if (ma_encoder_init_file("recording.wav", &encoderConfig, &encoder) != MA_SUCCESS) {
