@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <curl/curl.h>
+#include <pocketsphinx.h>
 
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -20,7 +21,6 @@ OS os = 0;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
-static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
  void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 int upload_to_whisper(const char *filename);
 
@@ -103,7 +103,7 @@ TIME FOR THE RECORDING PART
     deviceConfig = ma_device_config_init(ma_device_type_capture);
     deviceConfig.capture.format   = ma_format_s16;
     deviceConfig.capture.channels = 1;
-    deviceConfig.sampleRate       = 44100;
+    deviceConfig.sampleRate       = 16000;
     deviceConfig.dataCallback     = data_callback;
     deviceConfig.pUserData        = &encoder;
 
@@ -131,18 +131,88 @@ TIME FOR THE RECORDING PART
 
     ma_device_uninit(&device);
     ma_encoder_uninit(&encoder);
+    /*
+    TRANSCRIBING WITH POCKETSPHINX
+    TRANSCRIBING WITH POCKETSPHINX
+    TRANSCRIBING WITH POCKETSPHINX
+    TRANSCRIBING WITH POCKETSPHINX
+    TRANSCRIBING WITH POCKETSPHINX
+    TRANSCRIBING WITH POCKETSPHINX
+    */
 
-        const char *api_key = getenv("OPENAI_API_KEY");
-    if (!api_key) {
-        printf("OPENAI_API_KEY not set. Please set it now: \n");
+
+     ps_decoder_t *decoder;
+     ps_config_t *config;
+     FILE *fh;
+     short *buf;
+     size_t len, nsamples;
+    //open the recording
+     if ((fh = fopen("recording.wav", "rb")) == NULL){
+        printf("Failed to open the recording");
+        exit(1);
+     }
+
+     //get length of recording
+     if (fseek(fh, 0, SEEK_END) < 0) printf("unable to find end of recording.wav"); 
+     len = ftell(fh);
+     rewind(fh);
+
+     //initalize config from input file
+
+     config = ps_config_init(NULL);
+     ps_default_search_args(config);
+     if (ps_config_soundfile(config, fh, "recording\\.wav") < 0){
+        printf("unsupported input file");
+        exit(1);
+     }
+    if ((decoder = ps_init(config)) == NULL){
+        printf("Pocketsphinx decoder init failed\n");
         exit(1);
     }
 
-    printf("Transcribing with Whisper-1\n");
-    upload_to_whisper("recording.wav");
+    //allocate data
 
-    printf("Done.\n");
+    len -= ftell(fh);
+
+    if ((buf = malloc(len)) == NULL){
+        printf("failed to allocate %d bytes", len);
+        exit(1);
+    }
+    // read the input
+
+    nsamples = fread(buf, sizeof(buf[0]), len / sizeof(buf[0]), fh);
+    if (nsamples != len / sizeof(buf[0])){
+        printf("Unable to read %d samples", len / sizeof(buf[0]));
+        exit(1);
+    }
+
+    // transcribe the recording
+
+    if (ps_start_utt(decoder) < 0){
+        printf("failed to start transcribing");
+        exit(1);
+    }
+    if(ps_process_raw(decoder, buf, nsamples, FALSE, TRUE) < 0){
+        printf("ps_process_raw() failed\n");
+        exit(1);
+    }
+    if (ps_end_utt(decoder) < 0){
+        printf("Failed to end the transcription process");
+        exit(1);
+    }
+
+    if(ps_get_hyp(decoder, NULL) != NULL){
+        printf("%s\n", ps_get_hyp(decoder, NULL));
+    }
+
+
+
+
 }
+
+
+
+
 
  void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount){
     ma_encoder* pEncoder = (ma_encoder*)pDevice->pUserData;
@@ -151,78 +221,10 @@ TIME FOR THE RECORDING PART
         ma_encoder_write_pcm_frames(pEncoder, pInput, frameCount, NULL);
     }
 
-    (void)pOutput; // Not used for recording
+    (void)pOutput;
 }
 
-static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userdata){
-    fwrite(ptr, size, nmemb, stdout);
-    return size * nmemb;
-}
 
-int upload_to_whisper(const char *filename)
-{
-    CURL *curl;
-    CURLcode res;
-
-    const char *api_key = getenv("OPENAI_API_KEY");
-
-    curl = curl_easy_init();
-    if (!curl) {
-        fprintf(stderr, "Failed to init curl\n");
-        return 1;
-    }
-
-    /* ---------- headers ---------- */
-    struct curl_slist *headers = NULL;
-    char auth_header[512];
-    snprintf(auth_header, sizeof(auth_header),
-             "Authorization: Bearer %s", api_key);
-    headers = curl_slist_append(headers, auth_header);
-
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-    /* ---------- multipart form ---------- */
-    curl_mime *form = curl_mime_init(curl);
-
-    curl_mimepart *part;
-
-    /* file */
-    part = curl_mime_addpart(form);
-    curl_mime_name(part, "file");
-    curl_mime_filedata(part, filename);
-
-    /* model */
-    part = curl_mime_addpart(form);
-    curl_mime_name(part, "model");
-    curl_mime_data(part, "whisper-1", CURL_ZERO_TERMINATED);
-
-    /* optional: language */
-    /*
-    part = curl_mime_addpart(form);
-    curl_mime_name(part, "language");
-    curl_mime_data(part, "en", CURL_ZERO_TERMINATED);
-    */
-
-    curl_easy_setopt(curl, CURLOPT_URL,
-        "https://api.openai.com/v1/audio/transcriptions");
-
-    curl_easy_setopt(curl, CURLOPT_MIMEPOST, form);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-
-    /* ---------- perform ---------- */
-    res = curl_easy_perform(curl);
-
-    if (res != CURLE_OK) {
-        fprintf(stderr, "curl error: %s\n", curl_easy_strerror(res));
-    }
-
-    /* ---------- cleanup ---------- */
-    curl_mime_free(form);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    return (res == CURLE_OK) ? 0 : 1;
-}
 
 
 
