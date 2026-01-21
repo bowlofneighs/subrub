@@ -15,6 +15,11 @@ typedef enum{
     os_windows = 1, os_macos = 2, os_linux = 3
 }OS;
 
+struct MemoryStruct {
+    char *memory;
+    size_t size;
+};
+
 bool verbose = false;
 
 OS os = 0;
@@ -201,85 +206,121 @@ TIME FOR THE RECORDING PART
         exit(1);
     }
 // Get the transcription result
-const char *hyp = ps_get_hyp(decoder, NULL);
+    const char *hyp = ps_get_hyp(decoder, NULL);
     if (hyp == NULL) {
         printf("No transcription available\n");
         exit(1);
     }
 
 // Copy to query buffer
-char query[1028];
-strncpy(query, hyp, sizeof(query) - 1);
-query[sizeof(query) - 1] = '\0';
+    char query[1028];
+    strncpy(query, hyp, sizeof(query) - 1);
+    query[sizeof(query) - 1] = '\0';
 
-printf("%s\n", query);
-
-
-
-// Use a proper multi-line string
-char prompt[2461] = "You are a voice assistant with the following capabilities:\n"
-"- Answer questions concisely\n"
-"- Set timers, reminders, and alarms\n"
-"- Provide information lookups\n"
-"- Perform system integrations (except those requiring admin permissions, note that you can not actually perform these integrations, but something else will handle them, just pretend like they got handled)\n";
+    printf("%s\n", query);
 
 
-curl_global_init(CURL_GLOBAL_ALL);
-CURL *handle = curl_easy_init();
 
-curl_easy_setopt(handle, CURLOPT_URL, "https://ai.hackclub.com/proxy/v1/chat/completions");
+    // Use a proper multi-line string
+    char prompt[2461] = "You are a voice assistant with the following capabilities:\n"
+    "- Answer questions concisely\n"
+    "- Set timers, reminders, and alarms\n"
+    "- Provide information lookups\n"
+    "- Perform system integrations (except those requiring admin permissions, note that you can not actually perform these integrations, but something else will handle them, just pretend like they got handled)\n";
 
-struct curl_slist *headers = NULL;
-char auth_header[256];
-char *api_key = getenv("HC_AI_API_KEY");
 
-//verbose ? printf("%s", api_key) : printf("nothing");
+    curl_global_init(CURL_GLOBAL_ALL);
+    CURL *handle = curl_easy_init();
+    struct MemoryStruct chunk;
+        chunk.memory = malloc(1);  // Will be grown as needed by realloc
+    chunk.size = 0;
 
-snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
-headers = curl_slist_append(headers, auth_header); 
-headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(handle, CURLOPT_URL, "https://ai.hackclub.com/proxy/v1/chat/completions");
+    curl_easy_setopt(handle, CURLOPT_WRITEDATA, (void *)&chunk);
 
-char escaped_prompt[5000];
-char escaped_query[5000];
-escape_json_string(prompt, escaped_prompt, sizeof(escaped_prompt));
-escape_json_string(query, escaped_query, sizeof(escaped_query));
+    struct curl_slist *headers = NULL;
+    char auth_header[256];
+    char *api_key = getenv("HC_AI_API_KEY");
 
-char json_data[4096];
+    //verbose ? printf("%s", api_key) : printf("nothing");
 
-snprintf(json_data, sizeof(json_data), 
-"{\n"
-"  \"model\": \"google/gemini-3-flash-preview\",\n"
-"  \"messages\": [\n"
-"    {\n"
-"      \"role\": \"system\",\n"
-"      \"content\": \"%s\"\n"
-"    },\n"
-"    {\n"
-"      \"role\": \"user\",\n"
-"      \"content\": \"%s\"\n"
-"    }\n"
-"  ]\n"
-"}", 
-    escaped_prompt, escaped_query);
+    snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
+    headers = curl_slist_append(headers, auth_header); 
+    headers = curl_slist_append(headers, "Content-Type: application/json");
 
-curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
-curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
-curl_easy_setopt(handle, CURLOPT_POSTFIELDS, json_data);
-curl_easy_setopt(handle, CURLOPT_VERBOSE, 1);
+    char escaped_prompt[5000];
+    char escaped_query[5000];
+    escape_json_string(prompt, escaped_prompt, sizeof(escaped_prompt));
+    escape_json_string(query, escaped_query, sizeof(escaped_query));
 
-CURLcode res = curl_easy_perform(handle);
+    char json_data[4096];
 
-if (res != CURLE_OK) {
+    snprintf(json_data, sizeof(json_data), 
+    "{\n"
+    "  \"model\": \"google/gemini-3-flash-preview\",\n"
+    "  \"messages\": [\n"
+    "    {\n"
+    "      \"role\": \"system\",\n"
+    "      \"content\": \"%s\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"role\": \"user\",\n"
+    "      \"content\": \"%s\"\n"
+    "    }\n"
+    "  ]\n"
+    "}", 
+        escaped_prompt, escaped_query);
+
+    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(handle, CURLOPT_POSTFIELDS, json_data);
+//    curl_easy_setopt(handle, CURLOPT_VERBOSE, 1);
+
+    CURLcode res = curl_easy_perform(handle);
+
+    if (res != CURLE_OK) {
     fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-}
+    }
+    if(verbose){
+        printf("%s\n\n", chunk);
+    }
+    cJSON *root = cJSON_Parse(chunk.memory);
+    if(root == NULL){
+        const char *error_ptr = cJSON_GetErrorPtr();
+    }
+
+    cJSON *choices = cJSON_GetObjectItem(root, "choices");
+
+    if(!cJSON_IsArray(choices)) {
+        cJSON_Delete(root);
+    }
+
+    cJSON *first_choice = cJSON_GetArrayItem(choices, 0);
+    if(first_choice == NULL){
+        cJSON_Delete(root);
+    }
+
+    cJSON *message = cJSON_GetObjectItem(first_choice, "message");
+    if(!cJSON_IsObject(message)){
+        cJSON_Delete(root);
+    }
+
+    cJSON *content = cJSON_GetObjectItem(message, "content");
+    if (cJSON_IsString(content) && (content->valuestring != NULL)){
+        printf("%s\n", content->valuestring);
+        char *my_content = strdup(content->valuestring);
+    }
+
+    cJSON_Delete(root);
 
 
 
-// Clean up
-free(buf);
-fclose(fh);
-ps_free(decoder);
-ps_config_free(config);
+
+    // Clean up
+    free(buf);
+    fclose(fh);
+    ps_free(decoder);
+    ps_config_free(config);
 
 return 0;
 }
@@ -299,7 +340,20 @@ return 0;
 
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
-    printf("%.*s", (int)realsize, (char *)contents);
+    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+    
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    if(!ptr) {
+        // Out of memory
+        printf("Not enough memory (realloc returned NULL)\n");
+        return 0;
+    }
+    
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;  // Null-terminate
+    
     return realsize;
 }
 
