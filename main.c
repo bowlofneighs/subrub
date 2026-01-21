@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 #include <pocketsphinx.h>
 #include <cjson/cJSON.h>
+#include <espeak-ng/speak_lib.h>
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
@@ -23,7 +24,7 @@ struct MemoryStruct {
 bool verbose = false;
 
 OS os = 0;
-
+void speak(const char *text);
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp);
 void escape_json_string(const char *input, char *output, size_t output_size);
@@ -226,7 +227,8 @@ TIME FOR THE RECORDING PART
     "- Answer questions concisely\n"
     "- Set timers, reminders, and alarms\n"
     "- Provide information lookups\n"
-    "- Perform system integrations (except those requiring admin permissions, note that you can not actually perform these integrations, but something else will handle them, just pretend like they got handled)\n";
+    "- Perform system integrations (except those requiring admin permissions, note that you can not actually perform these integrations, but something else will handle them, just pretend like they got handled)\n"
+    "- the transcription library is not so accurate, so try your best to handle nonsensical sentences by looking at other words that sound similar\n";
 
 
     curl_global_init(CURL_GLOBAL_ALL);
@@ -268,7 +270,7 @@ TIME FOR THE RECORDING PART
     "      \"content\": \"%s\"\n"
     "    }\n"
     "  ]\n"
-    "}", 
+    "}",    
         escaped_prompt, escaped_query);
 
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
@@ -311,9 +313,21 @@ TIME FOR THE RECORDING PART
         char *my_content = strdup(content->valuestring);
     }
 
+
+    int sample_rate = espeak_Initialize(AUDIO_OUTPUT_PLAYBACK, 0, NULL, 0);
+    if (sample_rate == -1){
+        printf("espeak init failed");
+        return 1;
+    }
+
+
+
+    speak(content->valuestring);
+    espeak_Terminate();
+
+
+
     cJSON_Delete(root);
-
-
 
 
     // Clean up
@@ -388,9 +402,10 @@ for(size_t i = 0; input[i] != '\0' && j < output_size - 2; i++){
     output[j] = '\0';
 }
 
-
-
-
-
-
-
+void speak(const char *text) {
+        espeak_Synth(text, 
+                 strlen(text) + 1, 
+                 0, POS_CHARACTER, 0, 
+                 espeakCHARS_UTF8, NULL, NULL);
+    espeak_Synchronize();
+}
