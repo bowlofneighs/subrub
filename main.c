@@ -42,6 +42,10 @@ int main(int argc, char *argv[]){
             printf("help text\n");
             return 0;
         }
+        if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--dry-run") == 0){
+            bool dry = true;
+            printf("subrub is running in dry mode");
+        }
         
     }
 
@@ -220,7 +224,7 @@ TIME FOR THE RECORDING PART
 
     printf("%s\n", query);
 
-
+if (!dry){
 
     // Use a proper multi-line string
     char prompt[2461] = "You are a voice assistant with the following capabilities:\n"
@@ -328,7 +332,7 @@ TIME FOR THE RECORDING PART
 
 
     cJSON_Delete(root);
-
+}
 
     // Clean up
     free(buf);
