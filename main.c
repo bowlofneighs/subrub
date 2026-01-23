@@ -8,9 +8,18 @@
 #include <pocketsphinx.h>
 #include <cjson/cJSON.h>
 #include <espeak-ng/speak_lib.h>
+#include <sys/stat.h>
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
+
+#ifdef _WIN32
+    #include <direct.h>
+    #define MKDIR(path) _mkdir(path)
+#else
+    #include <sys/stat.h>
+    #define MKDIR(path) mkdir(path, 0755)
+#endif
 
 typedef enum{
     os_windows = 1, os_macos = 2, os_linux = 3
@@ -22,6 +31,7 @@ struct MemoryStruct {
 };
 
 bool verbose = false;
+bool dry;
 
 OS os = 0;
 void speak(const char *text);
@@ -29,30 +39,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp);
 void escape_json_string(const char *input, char *output, size_t output_size);
 
-
 int main(int argc, char *argv[]){
-
-
-    //detecting command line args
-    for(int i = 1; i < argc; i++){
-        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0){
-              verbose = true;
-        }
-        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0){
-            printf("help text\n");
-            return 0;
-        }
-        if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--dry-run") == 0){
-            bool dry = true;
-            printf("subrub is running in dry mode");
-        }
-        
-    }
-
-
-    //inform the user that verbose mode is enabled
-    if(verbose){printf("SubRub is running in verbose mode\n");}
-
 
     //detect user OS
 
@@ -67,6 +54,84 @@ int main(int argc, char *argv[]){
         return 1;
     #endif
 
+
+    //detecting command line args
+    for(int i = 1; i < argc; i++){
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0){
+              verbose = true;
+        }
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0){
+            printf("help text\n");
+            return 0;
+        }
+        if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--dry-run") == 0){
+            dry = true;
+            printf("subrub is running in dry mode\n");
+        }
+        if (strcmp(argv[i], "-C") == 0 || strcmp(argv[i], "--config") == 0){
+            char confirmation = '\0';
+            char config_dir[1024];
+            char config_path[1024];
+            char big_config_dir[1024];
+            printf("Generate an example config file?\n"
+                   "WARNING: WILL OVERWRITE ANY EXISTING CONFIG FILE  [y/N] ");
+            scanf("%c", &confirmation);
+            if (confirmation == 'y'){
+                if(os == os_linux || os == os_macos){
+                    const char *home = getenv("HOME");
+
+                    if (home == NULL){
+                        printf("failed to get the $HOME environment variable\n");
+                        exit(1);
+                    }
+
+                    snprintf(config_dir, sizeof(config_dir), "%s/.config/subrub", home);
+                    snprintf(big_config_dir, sizeof(big_config_dir), "%s/.config", home);
+                    snprintf(config_path, sizeof(config_path), "%s/.config/subrub/subrub.conf", home);
+                    
+                    MKDIR(big_config_dir);
+                    MKDIR(config_dir); //fails silently if dir exists
+
+                    printf("generating an example config file at ~/.config/subrub/subrub.conf\n");
+                    FILE *config;
+                    config = fopen(config_path, "w");
+                    if (config == NULL){
+                        printf("failed to create ~/.config/subrub/subrub.conf\n");
+                        exit(1);
+                    }
+                    fprintf(config, "#api key\nAPI_KEY = example LOL\n#AI\nAI = google/gemini-3-flash-preview\n");
+                    fclose(config);
+                }
+                else if(os == os_windows){
+                    const char *appdata = getenv("APPDATA"); //not sure abt this need to test on windows
+                    if (appdata == NULL){
+                        printf("failed to get appdata environment variable\n");
+                        exit(1);
+                    }
+                    snprintf(config_dir, sizeof(config_dir), "%s\\subrub", appdata);
+                    MKDIR(config_dir);
+                    snprintf(config_path, sizeof(config_path), "%s\\subrub\\subrub.conf", appdata);
+                    FILE *config;
+                    config = fopen(config_path, "w");
+                    if(config == NULL){
+                        printf("failed to open %%APPDATA%%\\subrub\\subrub.conf\n");
+                        exit(1);
+                    }
+                    printf("generating an example config file at %APPDATA%\\subrub\\subrub.conf\n");
+                    fprintf(config, "#api key\nAPI_KEY = example-LOL\n#AI\nAI = google/gemini-3-flash-preview\n");
+                    fclose(config);
+                }
+            }
+            exit(0);
+        }     
+    }
+
+
+    //inform the user that verbose mode is enabled
+    if(verbose){printf("SubRub is running in verbose mode\n");}
+
+
+
 // print OS for verbose mode
     if(verbose){
         if(os == os_windows){
@@ -77,6 +142,51 @@ int main(int argc, char *argv[]){
         }
         else if(os == os_linux){
             printf("Linux OS detected\n");
+        }
+    }
+
+    if(os == os_linux || os == os_macos){
+
+        char *user = getenv("HOME");
+        char config_path[1024];
+
+        if(user == NULL){
+            printf("failed to get environment variable USER\n");
+            exit(1);
+        }
+
+        snprintf(config_path, sizeof(config_path), "%s/.config/subrub/subrub.conf", user);
+
+
+
+
+        FILE *fp = fopen(config_path, "r");
+        if(fp){
+            fclose(fp);
+        }
+        else{
+            printf("failed to open config file. please make sure ~/.config/subrub/subrub.conf exists and is readable.\n");
+            printf("append the \"-C\" or \"--config\" flags to generate an example file\n");
+            exit(1);
+        }
+    }
+    else if(os == os_windows){
+        char *user = getenv("APPDATA");
+        char config_path[1024];
+        if (user == NULL){
+            printf("failed to get environment variable APPDATA");
+            exit(1);
+        }
+        snprintf(config_path, sizeof(config_path), "%s\\subrub\\subrub.conf");
+
+       N FILE *fp = fopen(config_path, "r");
+        if(fp){
+            fclose(fp);
+        }
+            else{
+            printf("failed to open config file. please make sure %APPDATA%\\subrub\\subrub.conf exists and is readable.\n");
+            printf("append the \"-C\" or \"--config\" flags to generate an example file\n");
+            exit(1);
         }
     }
 
@@ -224,115 +334,118 @@ TIME FOR THE RECORDING PART
 
     printf("%s\n", query);
 
-if (!dry){
+    if (!dry){
 
-    // Use a proper multi-line string
-    char prompt[2461] = "You are a voice assistant with the following capabilities:\n"
-    "- Answer questions concisely\n"
-    "- Set timers, reminders, and alarms\n"
-    "- Provide information lookups\n"
-    "- Perform system integrations (except those requiring admin permissions, note that you can not actually perform these integrations, but something else will handle them, just pretend like they got handled)\n"
-    "- the transcription library is not so accurate, so try your best to handle nonsensical sentences by looking at other words that sound similar\n";
+        // Use a proper multi-line string
+        char prompt[2461] = "You are a voice assistant with the following capabilities:\n"
+        "- Answer questions concisely\n"
+        "- Set timers, reminders, and alarms\n"
+        "- Provide information lookups\n"
+        "- Perform system integrations (except those requiring admin permissions, note that you can not actually perform these integrations, but something else will handle them, just pretend like they got handled)\n"
+        "- the transcription library is not so accurate, so try your best to handle nonsensical sentences by looking at other words that sound similar\n";
 
 
-    curl_global_init(CURL_GLOBAL_ALL);
-    CURL *handle = curl_easy_init();
-    struct MemoryStruct chunk;
-        chunk.memory = malloc(1);  // Will be grown as needed by realloc
-    chunk.size = 0;
+        curl_global_init(CURL_GLOBAL_ALL);
+        CURL *handle = curl_easy_init();
+        struct MemoryStruct chunk;
+            chunk.memory = malloc(1);  // Will be grown as needed by realloc
+        chunk.size = 0;
 
-    curl_easy_setopt(handle, CURLOPT_URL, "https://ai.hackclub.com/proxy/v1/chat/completions");
-    curl_easy_setopt(handle, CURLOPT_WRITEDATA, (void *)&chunk);
+        curl_easy_setopt(handle, CURLOPT_URL, "https://ai.hackclub.com/proxy/v1/chat/completions");
+        curl_easy_setopt(handle, CURLOPT_WRITEDATA, (void *)&chunk);
 
-    struct curl_slist *headers = NULL;
-    char auth_header[256];
-    char *api_key = getenv("HC_AI_API_KEY");
+        struct curl_slist *headers = NULL;
+        char auth_header[256];
+        char *api_key = getenv("HC_AI_API_KEY");
 
-    //verbose ? printf("%s", api_key) : printf("nothing");
+        //verbose ? printf("%s", api_key) : printf("nothing");
 
-    snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
-    headers = curl_slist_append(headers, auth_header); 
-    headers = curl_slist_append(headers, "Content-Type: application/json");
+        snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
+        headers = curl_slist_append(headers, auth_header); 
+        headers = curl_slist_append(headers, "Content-Type: application/json");
 
-    char escaped_prompt[5000];
-    char escaped_query[5000];
-    escape_json_string(prompt, escaped_prompt, sizeof(escaped_prompt));
-    escape_json_string(query, escaped_query, sizeof(escaped_query));
+        char escaped_prompt[5000];
+        char escaped_query[5000];
+        escape_json_string(prompt, escaped_prompt, sizeof(escaped_prompt));
+        escape_json_string(query, escaped_query, sizeof(escaped_query));
 
-    char json_data[4096];
+        char json_data[4096];
 
-    snprintf(json_data, sizeof(json_data), 
-    "{\n"
-    "  \"model\": \"google/gemini-3-flash-preview\",\n"
-    "  \"messages\": [\n"
-    "    {\n"
-    "      \"role\": \"system\",\n"
-    "      \"content\": \"%s\"\n"
-    "    },\n"
-    "    {\n"
-    "      \"role\": \"user\",\n"
-    "      \"content\": \"%s\"\n"
-    "    }\n"
-    "  ]\n"
-    "}",    
-        escaped_prompt, escaped_query);
+        snprintf(json_data, sizeof(json_data), 
+        "{\n"
+        "  \"model\": \"google/gemini-3-flash-preview\",\n"
+        "  \"messages\": [\n"
+        "    {\n"
+        "      \"role\": \"system\",\n"
+        "      \"content\": \"%s\"\n"
+        "    },\n"
+        "    {\n"
+        "      \"role\": \"user\",\n"
+        "      \"content\": \"%s\"\n"
+        "    }\n"
+        "  ]\n"
+        "}",    
+            escaped_prompt, escaped_query);
 
-    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(handle, CURLOPT_POSTFIELDS, json_data);
-//    curl_easy_setopt(handle, CURLOPT_VERBOSE, 1);
+        curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(handle, CURLOPT_POSTFIELDS, json_data);
+    //    curl_easy_setopt(handle, CURLOPT_VERBOSE, 1);
 
-    CURLcode res = curl_easy_perform(handle);
+        CURLcode res = curl_easy_perform(handle);
 
-    if (res != CURLE_OK) {
-    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-    }
-    if(verbose){
-        printf("%s\n\n", chunk);
-    }
-    cJSON *root = cJSON_Parse(chunk.memory);
-    if(root == NULL){
-        const char *error_ptr = cJSON_GetErrorPtr();
-    }
+        if (res != CURLE_OK) {
+        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        }
+        if(verbose){
+            printf("%s\n\n", chunk);
+        }
+        cJSON *root = cJSON_Parse(chunk.memory);
+        if(root == NULL){
+            const char *error_ptr = cJSON_GetErrorPtr();
+        }
 
-    cJSON *choices = cJSON_GetObjectItem(root, "choices");
+        cJSON *choices = cJSON_GetObjectItem(root, "choices");
 
-    if(!cJSON_IsArray(choices)) {
+        if(!cJSON_IsArray(choices)) {
+            cJSON_Delete(root);
+        }
+
+        cJSON *first_choice = cJSON_GetArrayItem(choices, 0);
+        if(first_choice == NULL){
+            cJSON_Delete(root);
+        }
+
+        cJSON *message = cJSON_GetObjectItem(first_choice, "message");
+        if(!cJSON_IsObject(message)){
+            cJSON_Delete(root);
+        }
+
+        cJSON *content = cJSON_GetObjectItem(message, "content");
+        if (cJSON_IsString(content) && (content->valuestring != NULL)){
+            printf("%s\n", content->valuestring);
+            char *my_content = strdup(content->valuestring);
+        }
+
+
+        int sample_rate = espeak_Initialize(AUDIO_OUTPUT_PLAYBACK, 0, NULL, 0);
+        if (sample_rate == -1){
+            printf("espeak init failed");
+            return 1;
+        }
+
+
+
+        speak(content->valuestring);
+        espeak_Terminate();
+
+
+
         cJSON_Delete(root);
     }
-
-    cJSON *first_choice = cJSON_GetArrayItem(choices, 0);
-    if(first_choice == NULL){
-        cJSON_Delete(root);
+    else if(dry){
+        printf("No AI was contacted because subrub was ran in dry mode");
     }
-
-    cJSON *message = cJSON_GetObjectItem(first_choice, "message");
-    if(!cJSON_IsObject(message)){
-        cJSON_Delete(root);
-    }
-
-    cJSON *content = cJSON_GetObjectItem(message, "content");
-    if (cJSON_IsString(content) && (content->valuestring != NULL)){
-        printf("%s\n", content->valuestring);
-        char *my_content = strdup(content->valuestring);
-    }
-
-
-    int sample_rate = espeak_Initialize(AUDIO_OUTPUT_PLAYBACK, 0, NULL, 0);
-    if (sample_rate == -1){
-        printf("espeak init failed");
-        return 1;
-    }
-
-
-
-    speak(content->valuestring);
-    espeak_Terminate();
-
-
-
-    cJSON_Delete(root);
-}
 
     // Clean up
     free(buf);
@@ -340,7 +453,7 @@ if (!dry){
     ps_free(decoder);
     ps_config_free(config);
 
-return 0;
+    return 0;
 }
 
 
