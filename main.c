@@ -30,6 +30,174 @@ struct MemoryStruct {
     size_t size;
 };
 
+typedef enum{
+    TOKEN_IDENTIFIER,
+    TOKEN_LBRACE, //{
+    TOKEN_RBRACE, //}
+    TOKEN_EQUALS, //=
+    TOKEN_EOF,
+    TOKEN_ERROR
+} TokenType;
+
+typedef struct{
+    TokenType type;
+    char *value; //what char it is
+    int line;
+} Token;
+
+typedef struct{
+    FILE *fp;
+    int current_line;
+    int currnet_char;
+} Lexer;
+
+int is_identifier_start(int c){
+    //checks if c can start an identifier
+    return isalpha(c) || c == '_';
+}
+
+int is_identifier_char(int c){
+    //checks if c can be part of an identifier
+    return isalnum(c) || c == '-' || c == '-' || c == '.';
+}
+
+int is_whitespace(int c){
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+Token make_token(TokenType type, char *value, int line){
+    Token t;
+    t.type = type;
+    t.value = value;
+    t.line = line;
+    return t;
+}
+
+const char* token_type_to_string(TokenType type){
+    switch (type){
+        case TOKEN_IDENTIFIER: return "IDENTIFIER";
+        case TOKEN_LBRACE:     return "LBRACE";
+        case TOKEN_RBRACE:     return "RBRACE";
+        case TOKEN_EQUALS:     return "EQUALS";
+        case TOKEN_EOF:        return "EOF";
+        case TOKEN_ERROR:      return "ERORR";
+        default:               return "UNKOWN";
+    }
+}
+
+// LEXER FUNCS
+
+Lexer* lexer_init(FILE *fp){
+    Lexer *lex = malloc(sizeof(Lexer));
+    lex->fp = fp;
+    lex->current_line = 1;
+    lex->current_char = ' ';
+    return lex;
+}
+
+void lexer_free(Lexer *lex){
+    free(lex);
+}
+
+int lexer_peek(Lexer *lex){
+    int c = fgetc(lex->fp);
+    if (c != EOF){
+        ungetc(c, lex->fp);
+        }
+        return c;
+    }
+}
+
+int lexer_advance(Lexer *lex){
+    int c = fgetc(lex->fp);
+
+    if (c == '\n'){
+        lex->current_line++;
+    }
+    return c;
+}
+void lexer_skip_whitespace{
+    while(is_whitespace(lex->current_char)){
+        lexer_advance(lex);
+    }
+}
+void lexer_skip_comment(Lexer *lex){
+
+    while(lex->current_char != '\n' && lex->current_char != EOF){
+        lexer_advance(lex);
+    }
+
+    if (lex->current_char == '\n'){
+        lexer_advance(lex);
+    }
+}
+
+Token lexer_read_identifier(Lexer *lex){
+    char buffer[256];
+    int buf_pos = 0;
+    int start_line = lex->current_line;
+
+
+    buffer[buf_pos++] = lex->current_char;
+    lexer_advance(lex);;
+
+    while (is_identifier_char(lex->current_char)) {
+        if (buf_pos >= 255){
+            fprintf("Error in config file: Identifier too long at line &d\n", start_line);
+            return make_token(TOKEN_ERROR, NULL, start_line);
+        }
+        buffer[buf_pos++] = lex->current_char;
+        lexer_advance(lex);
+    }
+
+    buffer[buf_pos] = '\0';
+
+    char *value = strdup(buffer);
+
+    return make_token(TOKEN_IDENTIFIER, value, start_line);
+}
+
+Token lexer_next_token(Lexer *lex){
+    for(;;){
+        lexer_skip_whitespace(lex);
+
+        if (lex->current_char == '#'){
+            lexer_skip_comment(lex);
+            continue;
+        }
+
+        break;
+    }
+
+    int line = lex->current_line;
+
+    if (lex->current_char == EOF){
+        return make_token(TOKEN_EOF, NULL, line);
+    }
+
+
+    switch (lex->current_char){
+        case '{':
+            lexer_advance(lex);
+            return make_token(TOKEN_LBRACE, NULL, line);
+        case '}':
+            lexer_advance(lex);
+            return make_token(TOKEN_RBRACE, NULL, line);
+        case '=':
+            lexer_advance(lex);
+            return make_token(TOKEN_EQUALS, NULL, line);
+    }
+
+    if (is_identifier_start(lex->current_char)){
+        return lexer_read_identifier(lex);
+    }
+
+    printf("Error: Unexpected character '%c' (ASCII %d) at line %d", lex->current_char, lex->current_char, line);
+    return make_token(TOKEN_ERROR, NULL, line);
+}
+
+
+
 bool verbose = false;
 bool dry;
 
@@ -145,50 +313,35 @@ int main(int argc, char *argv[]){
         }
     }
 
-    if(os == os_linux || os == os_macos){
+    char config_path[128];
 
-        char *user = getenv("HOME");
-        char config_path[1024];
-
-        if(user == NULL){
-            printf("failed to get environment variable USER\n");
-            exit(1);
-        }
-
-        snprintf(config_path, sizeof(config_path), "%s/.config/subrub/subrub.conf", user);
-
-
-
-
-        FILE *fp = fopen(config_path, "r");
-        if(fp){
-            fclose(fp);
-        }
-        else{
-            printf("failed to open config file. please make sure ~/.config/subrub/subrub.conf exists and is readable.\n");
-            printf("append the \"-C\" or \"--config\" flags to generate an example file\n");
-            exit(1);
-        }
-    }
-    else if(os == os_windows){
-        char *user = getenv("APPDATA");
-        char config_path[1024];
-        if (user == NULL){
+    if (os == os_windows){
+        char *appdata = getenv("APPDATA");
+        if(appdata == NULL){
             printf("failed to get environment variable APPDATA");
             exit(1);
         }
-        snprintf(config_path, sizeof(config_path), "%s\\subrub\\subrub.conf");
 
-       N FILE *fp = fopen(config_path, "r");
-        if(fp){
-            fclose(fp);
-        }
-            else{
-            printf("failed to open config file. please make sure %APPDATA%\\subrub\\subrub.conf exists and is readable.\n");
-            printf("append the \"-C\" or \"--config\" flags to generate an example file\n");
+        snprintf(config_path, sizeof(config_path), "%s\\subrub\\subrub.conf", appdata);
+    }
+    if (os == os_linux || os = os_macos){
+        char *home = getenv("HOME");
+        if (home == NULL){
+            printf("failed to get HOME environment variable");
             exit(1);
         }
+        snprintf(config_path, sizeof(config_path), "%s/.config/subrub/subrub.conf", home);
     }
+
+    FILE *config;
+    config = fopen(config_path, "r");
+
+    int c = fgetc(config);
+
+
+
+
+
 
 
 /*
