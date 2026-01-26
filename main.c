@@ -9,6 +9,7 @@
 #include <cjson/cJSON.h>
 #include <espeak-ng/speak_lib.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
@@ -48,7 +49,7 @@ typedef struct{
 typedef struct{
     FILE *fp;
     int current_line;
-    int currnet_char;
+    int current_char;
 } Lexer;
 
 int is_identifier_start(int c){
@@ -58,7 +59,7 @@ int is_identifier_start(int c){
 
 int is_identifier_char(int c){
     //checks if c can be part of an identifier
-    return isalnum(c) || c == '-' || c == '-' || c == '.';
+    return isalnum(c) || c == '-' || c == '_' || c == '.';
 }
 
 int is_whitespace(int c){
@@ -99,13 +100,12 @@ void lexer_free(Lexer *lex){
     free(lex);
 }
 
-int lexer_peek(Lexer *lex){
+int lexer_peek(Lexer *lex) {
     int c = fgetc(lex->fp);
-    if (c != EOF){
-        ungetc(c, lex->fp);
-        }
-        return c;
+    if (c != EOF) {
+        ungetc(c, lex->fp);  // Put it back
     }
+    return c;
 }
 
 int lexer_advance(Lexer *lex){
@@ -116,7 +116,7 @@ int lexer_advance(Lexer *lex){
     }
     return c;
 }
-void lexer_skip_whitespace{
+void lexer_skip_whitespace(Lexer *lex){
     while(is_whitespace(lex->current_char)){
         lexer_advance(lex);
     }
@@ -143,7 +143,7 @@ Token lexer_read_identifier(Lexer *lex){
 
     while (is_identifier_char(lex->current_char)) {
         if (buf_pos >= 255){
-            fprintf("Error in config file: Identifier too long at line &d\n", start_line);
+            printf("Error in config file: Identifier too long at line %d\n", start_line);
             return make_token(TOKEN_ERROR, NULL, start_line);
         }
         buffer[buf_pos++] = lex->current_char;
@@ -196,6 +196,226 @@ Token lexer_next_token(Lexer *lex){
     return make_token(TOKEN_ERROR, NULL, line);
 }
 
+typedef struct{
+    char *api_key;
+    char *url;
+    char *model;
+} AIConfig;
+
+
+typedef struct{
+    char *name;
+    char *keyword;
+    char* command;
+} KeywordEntry;
+
+typedef struct{
+    AIConfig ai;
+    KeywordEntry *keywords;
+    int keyword_count;
+    int keyword_capacity;
+} Config;
+
+typedef struct{
+    Lexer *lexer;
+    Token current_token;
+    Token peek_token;
+    Config *config;
+} Parser;
+
+void parser_advance(Parser *p){
+    if(p->current_token.value){
+        free(p->current_token.value);
+    }
+
+    p->current_token = lexer_next_token(p->lexer);
+}
+
+void parser_expect(Parser *p, TokenType expected) {
+    if (p->current_token.type != expected) {
+        fprintf(stderr, "Error in the config file on line %d: Expected %s but got %s\n",
+                p->current_token.line,
+                token_type_to_string(expected),
+                token_type_to_string(p->current_token.type));
+        exit(1);
+    }
+    parser_advance(p);  // Consume the token
+}
+
+int parser_check(Parser *p, TokenType type){ //checks current token type
+    return p->current_token.type == type;
+}
+
+
+void parse_ai_section(Parser *p){
+    while (!parser_check(p, TOKEN_RBRACE)){
+        if (!parser_check(p, TOKEN_IDENTIFIER)){
+            printf("Error on line %d of the config file: expected property name\n", 
+                    p->current_token.line);
+            exit(1);
+        }
+        char *key = strdup(p->current_token.value);
+        parser_advance(p);
+        
+        parser_expect(p, TOKEN_EQUALS);  // ✓ Add this
+        
+        if (!parser_check(p, TOKEN_IDENTIFIER)){  // ✓ Add this
+            printf("Error on line %d: expected value\n", p->current_token.line);
+            exit(1);
+        }
+        
+        char *value = strdup(p->current_token.value);  // ✓ Add this
+        parser_advance(p);  // ✓ Add this
+        
+        if (strcmp(key, "api_key") == 0){
+            p->config->ai.api_key = value;
+        } else if (strcmp(key, "url") == 0){
+            p->config->ai.url = value;
+        } else if (strcmp(key, "model") == 0){
+            p->config->ai.model = value;
+        } else {
+            printf("Warning: unknown ai property \"%s\" in the config file at line %d\n", key, p->current_token.line);
+            free(value);
+        }
+        
+        free(key);  // ✓ Don't forget this
+    }
+}
+
+
+
+void add_keyword_entry(Config *cfg, KeywordEntry entry) {
+    // Grow array if needed
+    if (cfg->keyword_count >= cfg->keyword_capacity) {
+        cfg->keyword_capacity = cfg->keyword_capacity == 0 ? 4 : cfg->keyword_capacity * 2;
+        cfg->keywords = realloc(cfg->keywords, 
+                               cfg->keyword_capacity * sizeof(KeywordEntry));
+        if (cfg->keywords == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory for keywords\n");
+            exit(1);
+        }
+    }
+    
+    cfg->keywords[cfg->keyword_count++] = entry;
+}
+
+void parse_keyword_block(Parser *p) {
+    // Read the keyword name (e.g., "brightness-down")
+    if (!parser_check(p, TOKEN_IDENTIFIER)) {
+        fprintf(stderr, "Error line %d: Expected keyword name\n",
+                p->current_token.line);
+        exit(1);
+    }
+    
+    char *name = strdup(p->current_token.value);
+    parser_advance(p);
+    
+    parser_expect(p, TOKEN_LBRACE);
+    
+    // Create a new keyword entry
+    KeywordEntry entry = {0};
+    entry.name = name;
+    
+    // Read properties inside this keyword block
+    while (!parser_check(p, TOKEN_RBRACE)) {
+        char *key = strdup(p->current_token.value);
+        parser_advance(p);
+        
+        parser_expect(p, TOKEN_EQUALS);
+        
+        char *value = strdup(p->current_token.value);
+        parser_advance(p);
+
+        if (strcmp(key, "keyword") == 0) {
+            entry.keyword = value;
+        } else if (strcmp(key, "command") == 0) {
+            entry.command = value;
+        } else {
+            fprintf(stderr, "Warning: Unknown keyword property '%s'\n", key);
+            free(value);
+        }
+        
+        free(key);
+    }
+    
+    parser_expect(p, TOKEN_RBRACE);
+    
+    // Add entry to the config's keyword array
+    add_keyword_entry(p->config, entry);
+}
+
+void parse_keywords_section(Parser *p) {
+    // Keep reading keyword blocks until '}'
+    while (!parser_check(p, TOKEN_RBRACE)) {
+        parse_keyword_block(p);
+    }
+}
+
+void parse_section(Parser *p) {
+    // We expect an identifier for the section name
+    if (!parser_check(p, TOKEN_IDENTIFIER)) {
+        fprintf(stderr, "Error line %d: Expected section name\n", 
+                p->current_token.line);
+        exit(1);
+    }
+    
+    char *section_name = strdup(p->current_token.value);
+    parser_advance(p);
+    
+    // Expect opening brace
+    parser_expect(p, TOKEN_LBRACE);
+    
+    // Parse content based on section name
+    if (strcmp(section_name, "AI") == 0) {
+        parse_ai_section(p);
+    } else if (strcmp(section_name, "Keywords") == 0) {
+        parse_keywords_section(p);
+    } else {
+        fprintf(stderr, "Error line %d: Unknown section '%s'\n",
+                p->current_token.line, section_name);
+        exit(1);
+    }
+    
+    // Expect closing brace
+    parser_expect(p, TOKEN_RBRACE);
+    
+    free(section_name);
+}
+
+void parse_config(Parser *p){ //parse the file
+    parser_advance(p);
+
+    while (!parser_check(p, TOKEN_EOF)){
+        parse_section(p);
+    }
+}
+
+Config* parse_file(const char *filename) {
+    FILE *fp = fopen(filename, "r");
+    if (!fp) {
+        printf("Error: Cannot open file '%s'\n", filename);
+        return NULL;
+    }
+    
+    Lexer *lexer = lexer_init(fp);
+    lexer_advance(lexer);  // Prime the lexer
+    
+    Config *config = calloc(1, sizeof(Config));
+    
+    Parser parser = {
+        .lexer = lexer,
+        .config = config
+    };
+    
+    parse_config(&parser);
+    
+    lexer_free(lexer);
+    fclose(fp);
+    
+    return config;
+}
+
+
 
 
 bool verbose = false;
@@ -218,7 +438,7 @@ int main(int argc, char *argv[]){
     #elif defined(__linux__)
         os = os_linux;
     #else 
-        printf("failed to detect operating system"\n);
+        printf("failed to detect operating system\n");
         return 1;
     #endif
 
@@ -324,7 +544,7 @@ int main(int argc, char *argv[]){
 
         snprintf(config_path, sizeof(config_path), "%s\\subrub\\subrub.conf", appdata);
     }
-    if (os == os_linux || os = os_macos){
+    if (os == os_linux || os == os_macos){
         char *home = getenv("HOME");
         if (home == NULL){
             printf("failed to get HOME environment variable");
@@ -333,12 +553,7 @@ int main(int argc, char *argv[]){
         snprintf(config_path, sizeof(config_path), "%s/.config/subrub/subrub.conf", home);
     }
 
-    FILE *config;
-    config = fopen(config_path, "r");
-
-    int c = fgetc(config);
-
-
+    parse_file(config_path);
 
 
 
