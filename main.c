@@ -26,31 +26,133 @@ typedef enum{
     os_windows = 1, os_macos = 2, os_linux = 3
 }OS;
 
-struct MemoryStruct {
-    char *memory;
-    size_t size;
-};
+
+bool verbose = false;
+bool dry;
+
+typedef struct{
+    char *api_key;
+    char *url;
+    char *model;
+} AIConfig;
+
+
+typedef struct{
+    char *name;
+    char *keyword;
+    char* command;
+} KeywordEntry;
 
 typedef enum{
     TOKEN_IDENTIFIER,
     TOKEN_LBRACE, //{
     TOKEN_RBRACE, //}
     TOKEN_EQUALS, //=
+    TOKEN_STRING,
     TOKEN_EOF,
     TOKEN_ERROR
 } TokenType;
 
 typedef struct{
-    TokenType type;
-    char *value; //what char it is
-    int line;
-} Token;
-
+    AIConfig ai;
+    KeywordEntry *keywords;
+    int keyword_count;
+    int keyword_capacity;
+} Config;
 typedef struct{
     FILE *fp;
     int current_line;
     int current_char;
 } Lexer;
+typedef struct{
+    TokenType type;
+    char *value; //what char it is
+    int line;
+} Token;
+typedef struct{
+    Lexer *lexer;
+    Token current_token;
+    Token peek_token;
+    Config *config;
+} Parser;
+
+struct MemoryStruct {
+    char *memory;
+    size_t size;
+};
+
+
+
+
+
+
+
+
+int contains_keyword(const char *text, const char *keyword) {
+    // Convert both to lowercase for comparison
+    char text_lower[1024];
+    char keyword_lower[256];
+    
+    // Convert text to lowercase
+    int i;
+    for (i = 0; text[i] && i < 1023; i++) {
+        text_lower[i] = tolower(text[i]);
+    }
+    text_lower[i] = '\0';
+    
+    // Convert keyword to lowercase
+    for (i = 0; keyword[i] && i < 255; i++) {
+        keyword_lower[i] = tolower(keyword[i]);
+    }
+    keyword_lower[i] = '\0';
+    
+    // Check if keyword is in text
+    return strstr(text_lower, keyword_lower) != NULL;
+}
+
+// Returns the index of the matching keyword, or -1 if not found
+int find_matching_keyword(Config *config, const char *query) {
+    for (int i = 0; i < config->keyword_count; i++) {
+        if (contains_keyword(query, config->keywords[i].keyword)) {
+            return i;
+        }
+    }
+    return -1;  // No match found
+}
+
+char* execute_command_with_output(const char *command) {
+    if (verbose) {
+        printf("Executing command: %s\n", command);
+    }
+    
+    FILE *pipe = popen(command, "r");
+    if (!pipe) {
+        fprintf(stderr, "Failed to execute command: %s\n", command);
+        return NULL;
+    }
+    
+    // Read output into a buffer
+    char buffer[4096];
+    char *output = malloc(1);
+    output[0] = '\0';
+    size_t output_len = 0;
+    
+    while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+        size_t buffer_len = strlen(buffer);
+        output = realloc(output, output_len + buffer_len + 1);
+        strcpy(output + output_len, buffer);
+        output_len += buffer_len;
+    }
+    
+    int status = pclose(pipe);
+    
+    if (status != 0 && verbose) {
+        fprintf(stderr, "Command exited with status: %d\n", status);
+    }
+    
+    return output;
+}
+
 
 int is_identifier_start(int c){
     //checks if c can start an identifier
@@ -59,7 +161,7 @@ int is_identifier_start(int c){
 
 int is_identifier_char(int c){
     //checks if c can be part of an identifier
-    return isalnum(c) || c == '-' || c == '_' || c == '.';
+    return isalnum(c) || c == '-' || c == '_' || c == '.' || c == ':' || c == '/';
 }
 
 int is_whitespace(int c){
@@ -114,6 +216,7 @@ int lexer_advance(Lexer *lex){
     if (c == '\n'){
         lex->current_line++;
     }
+    lex->current_char = c;
     return c;
 }
 void lexer_skip_whitespace(Lexer *lex){
@@ -157,6 +260,39 @@ Token lexer_read_identifier(Lexer *lex){
     return make_token(TOKEN_IDENTIFIER, value, start_line);
 }
 
+Token lexer_read_string(Lexer *lex) {
+    char buffer[1024];
+    int buf_pos = 0;
+    int start_line = lex->current_line;
+    
+    // Skip opening quote
+    lexer_advance(lex);
+    
+    // Read until closing quote
+    while (lex->current_char != '"' && lex->current_char != EOF) {
+        if (buf_pos >= 1023) {
+            printf("Error: String too long at line %d\n", start_line);
+            return make_token(TOKEN_ERROR, NULL, start_line);
+        }
+        
+        buffer[buf_pos++] = lex->current_char;
+        lexer_advance(lex);
+    }
+    
+    if (lex->current_char == EOF) {
+        printf("Error: Unterminated string at line %d\n", start_line);
+        return make_token(TOKEN_ERROR, NULL, start_line);
+    }
+    
+    // Skip closing quote
+    lexer_advance(lex);
+    
+    buffer[buf_pos] = '\0';
+    char *value = strdup(buffer);
+    
+    return make_token(TOKEN_STRING, value, start_line);
+}
+
 Token lexer_next_token(Lexer *lex){
     for(;;){
         lexer_skip_whitespace(lex);
@@ -186,6 +322,8 @@ Token lexer_next_token(Lexer *lex){
         case '=':
             lexer_advance(lex);
             return make_token(TOKEN_EQUALS, NULL, line);
+        case '"':
+            return lexer_read_string(lex);
     }
 
     if (is_identifier_start(lex->current_char)){
@@ -196,32 +334,6 @@ Token lexer_next_token(Lexer *lex){
     return make_token(TOKEN_ERROR, NULL, line);
 }
 
-typedef struct{
-    char *api_key;
-    char *url;
-    char *model;
-} AIConfig;
-
-
-typedef struct{
-    char *name;
-    char *keyword;
-    char* command;
-} KeywordEntry;
-
-typedef struct{
-    AIConfig ai;
-    KeywordEntry *keywords;
-    int keyword_count;
-    int keyword_capacity;
-} Config;
-
-typedef struct{
-    Lexer *lexer;
-    Token current_token;
-    Token peek_token;
-    Config *config;
-} Parser;
 
 void parser_advance(Parser *p){
     if(p->current_token.value){
@@ -257,15 +369,15 @@ void parse_ai_section(Parser *p){
         char *key = strdup(p->current_token.value);
         parser_advance(p);
         
-        parser_expect(p, TOKEN_EQUALS);  // ✓ Add this
+        parser_expect(p, TOKEN_EQUALS);  
         
-        if (!parser_check(p, TOKEN_IDENTIFIER)){  // ✓ Add this
+        if (!parser_check(p, TOKEN_IDENTIFIER) && !parser_check(p, TOKEN_STRING)){  
             printf("Error on line %d: expected value\n", p->current_token.line);
             exit(1);
         }
         
-        char *value = strdup(p->current_token.value);  // ✓ Add this
-        parser_advance(p);  // ✓ Add this
+        char *value = strdup(p->current_token.value); 
+        parser_advance(p);  
         
         if (strcmp(key, "api_key") == 0){
             p->config->ai.api_key = value;
@@ -301,7 +413,7 @@ void add_keyword_entry(Config *cfg, KeywordEntry entry) {
 
 void parse_keyword_block(Parser *p) {
     // Read the keyword name (e.g., "brightness-down")
-    if (!parser_check(p, TOKEN_IDENTIFIER)) {
+    if (!parser_check(p, TOKEN_IDENTIFIER) && !parser_check(p, TOKEN_STRING)) {
         fprintf(stderr, "Error line %d: Expected keyword name\n",
                 p->current_token.line);
         exit(1);
@@ -418,8 +530,6 @@ Config* parse_file(const char *filename) {
 
 
 
-bool verbose = false;
-bool dry;
 
 OS os = 0;
 void speak(const char *text);
@@ -553,7 +663,12 @@ int main(int argc, char *argv[]){
         snprintf(config_path, sizeof(config_path), "%s/.config/subrub/subrub.conf", home);
     }
 
-    parse_file(config_path);
+    Config *subrub_config = parse_file(config_path);
+
+    if (subrub_config == NULL){
+        printf("failed to parse config file\n");
+        exit(1);
+    }
 
 
 
@@ -702,6 +817,32 @@ TIME FOR THE RECORDING PART
 
     printf("%s\n", query);
 
+    int keyword_index = find_matching_keyword(subrub_config, query);
+
+    if (keyword_index != -1) {
+        // Found a matching keyword!
+        KeywordEntry *entry = &subrub_config->keywords[keyword_index];
+        
+        printf("Detected keyword: '%s'\n", entry->keyword);
+        printf("Executing command: %s\n", entry->command);
+        
+        execute_command_with_output(entry->command);
+        
+        // Optionally speak confirmation
+        if (!dry) {
+            int sample_rate = espeak_Initialize(AUDIO_OUTPUT_PLAYBACK, 0, NULL, 0);
+            if (sample_rate != -1) {
+                char response[256];
+                snprintf(response, sizeof(response), "Running %s", entry->name);
+                speak(response);
+                espeak_Terminate();
+            }
+        }
+        
+        // Skip AI processing since we handled a command
+        goto cleanup;
+    }
+
     if (!dry){
 
         // Use a proper multi-line string
@@ -719,12 +860,13 @@ TIME FOR THE RECORDING PART
             chunk.memory = malloc(1);  // Will be grown as needed by realloc
         chunk.size = 0;
 
-        curl_easy_setopt(handle, CURLOPT_URL, "https://ai.hackclub.com/proxy/v1/chat/completions");
+
+        curl_easy_setopt(handle, CURLOPT_URL, subrub_config->ai.url);
         curl_easy_setopt(handle, CURLOPT_WRITEDATA, (void *)&chunk);
 
         struct curl_slist *headers = NULL;
         char auth_header[256];
-        char *api_key = getenv("HC_AI_API_KEY");
+        char *api_key = subrub_config->ai.api_key;
 
         //verbose ? printf("%s", api_key) : printf("nothing");
 
@@ -741,7 +883,7 @@ TIME FOR THE RECORDING PART
 
         snprintf(json_data, sizeof(json_data), 
         "{\n"
-        "  \"model\": \"google/gemini-3-flash-preview\",\n"
+        "  \"model\": \"%s\",\n"
         "  \"messages\": [\n"
         "    {\n"
         "      \"role\": \"system\",\n"
@@ -753,7 +895,7 @@ TIME FOR THE RECORDING PART
         "    }\n"
         "  ]\n"
         "}",    
-            escaped_prompt, escaped_query);
+            subrub_config->ai.model, escaped_prompt, escaped_query);
 
         curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
         curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
@@ -814,12 +956,12 @@ TIME FOR THE RECORDING PART
     else if(dry){
         printf("No AI was contacted because subrub was ran in dry mode");
     }
-
-    // Clean up
-    free(buf);
-    fclose(fh);
-    ps_free(decoder);
-    ps_config_free(config);
+    cleanup: 
+        // Clean up
+        free(buf);
+        fclose(fh);
+        ps_free(decoder);
+        ps_config_free(config);
 
     return 0;
 }
