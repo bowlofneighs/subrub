@@ -79,7 +79,14 @@ jobs:
       
       - name: Install build dependencies
         run: |
-          brew install cmake libcurl pkg-config cjson espeak-ng
+          brew install cmake curl pkg-config cjson espeak-ng
+      - name: configure libcurl
+        run: |
+          echo 'export PATH="/opt/homebrew/opt/curl/bin:$PATH"' >> ~/.zshrc
+          export LDFLAGS="-L/opt/homebrew/opt/curl/lib"
+          export CPPFLAGS="-I/opt/homebrew/opt/curl/include"
+          export PKG_CONFIG_PATH="/opt/homebrew/opt/curl/lib/pkgconfig"
+
       
       - name: Build PocketSphinx 5.0
         run: |
