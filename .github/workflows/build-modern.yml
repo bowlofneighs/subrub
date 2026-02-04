@@ -29,7 +29,8 @@ jobs:
             git \
             libpulse-dev \
             libasound2-dev \
-            cjson-dev 
+            libcjson-dev \
+            libespeak-ng-dev
       
       - name: Build PocketSphinx 5.0
         run: |
@@ -78,7 +79,7 @@ jobs:
       
       - name: Install build dependencies
         run: |
-          brew install cmake curl pkg-config cjson
+          brew install cmake curl pkg-config cjson espeak-ng
       
       - name: Build PocketSphinx 5.0
         run: |
@@ -134,6 +135,7 @@ jobs:
             mingw-w64-x86_64-curl
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-cjson
+            mingw-w64-ucrt-x86_64-espeak-ng
             make
             git
       
