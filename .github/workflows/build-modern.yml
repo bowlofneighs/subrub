@@ -79,7 +79,7 @@ jobs:
       
       - name: Install build dependencies
         run: |
-          brew install cmake curl pkg-config cjson espeak-ng
+          brew install cmake libcurl pkg-config cjson espeak-ng
       
       - name: Build PocketSphinx 5.0
         run: |
@@ -132,7 +132,7 @@ jobs:
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-curl
+            mingw-w64-x86_64-libcurl
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-cjson
             mingw-w64-x86_64-espeak-ng
