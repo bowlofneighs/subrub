@@ -1,0 +1,203 @@
+name: Build Subrub (Modern PocketSphinx)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            gcc \
+            g++ \
+            make \
+            libcurl4-openssl-dev \
+            pkg-config \
+            git \
+            libpulse-dev \
+            libasound2-dev
+      
+      - name: Build PocketSphinx 5.0
+        run: |
+          cd /tmp
+          git clone --depth 1 --branch v5.0.3 https://github.com/cmusphinx/pocketsphinx.git
+          cd pocketsphinx
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+          cmake --build build --config Release -j$(nproc)
+          sudo cmake --install build
+          sudo ldconfig
+      
+      - name: Verify PocketSphinx installation
+        run: |
+          echo "Checking for PocketSphinx..."
+          pkg-config --modversion pocketsphinx || echo "Not found via pkg-config"
+          ls -la /usr/local/lib/libpocketsphinx* || echo "Library files not found"
+          ls -la /usr/local/include/pocketsphinx* || echo "Headers not found"
+      
+      - name: Build Subrub
+        run: |
+          mkdir build
+          cd build
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+          cmake ..
+          cmake --build . -j$(nproc)
+      
+      - name: Test binary
+        run: |
+          ls -lh build/subrub
+          file build/subrub
+          ldd build/subrub || true
+      
+      - name: Upload Linux Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: subrub-linux-x64
+          path: build/subrub
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install build dependencies
+        run: |
+          brew install cmake curl pkg-config
+      
+      - name: Build PocketSphinx 5.0
+        run: |
+          cd /tmp
+          git clone --depth 1 --branch v5.0.3 https://github.com/cmusphinx/pocketsphinx.git
+          cd pocketsphinx
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+          cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+          sudo cmake --install build
+      
+      - name: Verify PocketSphinx installation
+        run: |
+          echo "Checking for PocketSphinx..."
+          pkg-config --modversion pocketsphinx || echo "Not found via pkg-config"
+          ls -la /usr/local/lib/libpocketsphinx* || echo "Library files not found"
+      
+      - name: Build Subrub
+        run: |
+          mkdir build
+          cd build
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+          cmake ..
+          cmake --build . -j$(sysctl -n hw.ncpu)
+      
+      - name: Test binary
+        run: |
+          ls -lh build/subrub
+          file build/subrub
+          otool -L build/subrub || true
+      
+      - name: Upload macOS Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: subrub-macos-universal
+          path: build/subrub
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-curl
+            mingw-w64-x86_64-pkg-config
+            make
+            git
+      
+      - name: Build PocketSphinx 5.0
+        shell: msys2 {0}
+        run: |
+          cd /tmp
+          git clone --depth 1 --branch v5.0.3 https://github.com/cmusphinx/pocketsphinx.git
+          cd pocketsphinx
+          cmake -S . -B build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/mingw64
+          cmake --build build --config Release -j$(nproc)
+          cmake --install build
+      
+      - name: Verify PocketSphinx installation
+        shell: msys2 {0}
+        run: |
+          echo "Checking for PocketSphinx..."
+          pkg-config --modversion pocketsphinx || echo "Not found via pkg-config"
+          ls -la /mingw64/lib/libpocketsphinx* || echo "Library files not found"
+      
+      - name: Build Subrub
+        shell: msys2 {0}
+        run: |
+          mkdir build
+          cd build
+          cmake .. -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release
+          cmake --build .
+      
+      - name: Test binary
+        shell: msys2 {0}
+        run: |
+          ls -lh build/subrub.exe || ls -lh build/subrub
+          file build/subrub.exe || file build/subrub
+      
+      - name: Upload Windows Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: subrub-windows-x64
+          path: |
+            build/subrub.exe
+            build/subrub
+          if-no-files-found: error
+
+  create-release:
+    name: Create Release
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Display structure
+        run: ls -R artifacts
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
