@@ -1,0 +1,122 @@
+name: Build Subrub
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc libcurl4-openssl-dev pkg-config git autoconf automake libtool bison swig python3-dev libpulse-dev libasound2-dev
+      
+      - name: Build SphinxBase
+        run: |
+          git clone https://github.com/cmusphinx/sphinxbase.git
+          cd sphinxbase
+          ./autogen.sh
+          ./configure
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+      
+      - name: Build PocketSphinx
+        run: |
+          git clone https://github.com/cmusphinx/pocketsphinx.git
+          cd pocketsphinx
+          ./autogen.sh
+          ./configure
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+      
+      - name: Build Subrub
+        run: |
+          mkdir build
+          cd build
+          PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH cmake ..
+          cmake --build . -j$(nproc)
+      
+      - name: Upload Linux Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: subrub-linux
+          path: build/subrub
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake curl sphinxbase pocketsphinx
+      
+      - name: Build Subrub
+        run: |
+          mkdir build
+          cd build
+          cmake ..
+          cmake --build . -j$(sysctl -n hw.ncpu)
+      
+      - name: Upload macOS Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: subrub-macos
+          path: build/subrub
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 'a42af01b72c28a8e1d7b48107b33e4f286a55ef6'
+      
+      - name: Install dependencies with vcpkg
+        run: |
+          vcpkg install curl:x64-windows
+      
+      - name: Note about PocketSphinx
+        run: |
+          echo "Note: PocketSphinx is not easily available on Windows via vcpkg"
+          echo "You may need to build it separately or modify the code"
+      
+      - name: Build Subrub (without PocketSphinx for now)
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+          cmake --build . --config Release
+        continue-on-error: true
+      
+      - name: Upload Windows Binary
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: subrub-windows
+          path: build/Release/subrub.exe
+          if-no-files-found: warn
