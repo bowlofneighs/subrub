@@ -135,7 +135,7 @@ jobs:
             mingw-w64-x86_64-curl
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-cjson
-            mingw-w64-ucrt-x86_64-espeak-ng
+            mingw-w64-x86_64-espeak-ng
             make
             git
       

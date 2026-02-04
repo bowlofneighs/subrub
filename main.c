@@ -82,12 +82,6 @@ struct MemoryStruct {
 };
 
 
-
-
-
-
-
-
 int contains_keyword(const char *text, const char *keyword) {
     // Convert both to lowercase for comparison
     char text_lower[1024];
@@ -597,7 +591,11 @@ int main(int argc, char *argv[]){
                         printf("failed to create ~/.config/subrub/subrub.conf\n");
                         exit(1);
                     }
-                    fprintf(config, "#api key\nAPI_KEY = example LOL\n#AI\nAI = google/gemini-3-flash-preview\n");
+                    fprintf(config, "# example subrub configuration file\nAI{\n"
+                        "api_key = # you must generate one at ai.hackclub.com\n"
+                        "model = google/gemini-3-flash-preview # recommended because of short response time\n"
+                        "url = https://ai.hackclub.com/proxy/v1/chat/completions # ai url\n"
+                        "}");
                     fclose(config);
                 }
                 else if(os == os_windows){
@@ -616,7 +614,11 @@ int main(int argc, char *argv[]){
                         exit(1);
                     }
                     printf("generating an example config file at %APPDATA%\\subrub\\subrub.conf\n");
-                    fprintf(config, "#api key\nAPI_KEY = example-LOL\n#AI\nAI = google/gemini-3-flash-preview\n");
+                    fprintf(config, "# example subrub configuration file\nAI{\n"
+                        "api_key = # you must generate one at ai.hackclub.com\n"
+                        "model = google/gemini-3-flash-preview # recommended because of short response time\n"
+                        "url = https://ai.hackclub.com/proxy/v1/chat/completions # ai url\n"
+                        "}");
                     fclose(config);
                 }
             }
@@ -850,7 +852,6 @@ TIME FOR THE RECORDING PART
         "- Answer questions concisely\n"
         "- Set timers, reminders, and alarms\n"
         "- Provide information lookups\n"
-        "- Perform system integrations (except those requiring admin permissions, note that you can not actually perform these integrations, but something else will handle them, just pretend like they got handled)\n"
         "- the transcription library is not so accurate, so try your best to handle nonsensical sentences by looking at other words that sound similar\n";
 
 
