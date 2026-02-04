@@ -58,7 +58,7 @@ A Keyword is a string that if detected by the transcriber, will run a user defin
         }
         less-sounds{
             keyword = "play it less"
-            command = "amixer sset 'Master' 10%-
+            command = "amixer sset 'Master' 10%-"
         }
     }
 ```

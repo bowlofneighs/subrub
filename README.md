@@ -1,17 +1,8 @@
-# SubRub
-## Overview
+# Subrub
 
-SubRub is an opensource crossplatform ai voice assistant written in C. It records your voice until you press enter. there are many more features planned and it is still in development.
-
-## Planned features
-
-- transcription with pocketsphinx
-- responses from ai.hackclub.com
-- verbal response with `spd-say`
-- a user definable config file
-- a notification when SubRub runs
-
-
+Subrub is a user configurable AI assistant made in C that works on most modern operating systems. It uses Miniaudio for the recording and PocketSphinx for the transcription. It was designed using [Hack Club AI](h
+ttps://ai.hackclub.com/proxy/v1/chat/completions) for the AI testing however the user can provide any URL. The LLM model can also be configured in the [configuration file](https://github.com/bowlofneighs/subrub/blob/main/documentation.md#configuration). Subrub uses LibCurl for
+ communication with the URL and cJSON to parse the returned JSON.
 
 
 
