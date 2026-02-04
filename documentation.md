@@ -8,12 +8,12 @@ The easiest way to install Subrub is to download the correct binary for your sys
 
 ### Building From Source
 Dependencies:
+
 - gcc
 - miniaudio
 - pocketsphinx
 - cjson
 - espeak-ng
-
 You can then build it from source with this command:
 
 ```
