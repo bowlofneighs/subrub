@@ -51,7 +51,7 @@ typedef enum{
     TOKEN_STRING,
     TOKEN_EOF,
     TOKEN_ERROR
-} TokenType;
+} SubrubTokenType;
 
 typedef struct{
     AIConfig ai;
@@ -65,7 +65,7 @@ typedef struct{
     int current_char;
 } Lexer;
 typedef struct{
-    TokenType type;
+    SubrubTokenType type;
     char *value; //what char it is
     int line;
 } Token;
@@ -162,7 +162,7 @@ int is_whitespace(int c){
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-Token make_token(TokenType type, char *value, int line){
+Token make_token(SubrubTokenType type, char *value, int line){
     Token t;
     t.type = type;
     t.value = value;
@@ -170,7 +170,7 @@ Token make_token(TokenType type, char *value, int line){
     return t;
 }
 
-const char* token_type_to_string(TokenType type){
+const char* token_type_to_string(SubrubTokenType type){
     switch (type){
         case TOKEN_IDENTIFIER: return "IDENTIFIER";
         case TOKEN_LBRACE:     return "LBRACE";
@@ -337,7 +337,7 @@ void parser_advance(Parser *p){
     p->current_token = lexer_next_token(p->lexer);
 }
 
-void parser_expect(Parser *p, TokenType expected) {
+void parser_expect(Parser *p, SubrubTokenType expected) {
     if (p->current_token.type != expected) {
         fprintf(stderr, "Error in the config file on line %d: Expected %s but got %s\n",
                 p->current_token.line,
@@ -348,7 +348,7 @@ void parser_expect(Parser *p, TokenType expected) {
     parser_advance(p);  // Consume the token
 }
 
-int parser_check(Parser *p, TokenType type){ //checks current token type
+int parser_check(Parser *p, SubrubTokenType type){ //checks current token type
     return p->current_token.type == type;
 }
 
