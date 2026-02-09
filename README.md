@@ -10,4 +10,4 @@ You can download precompiled binaries for MacOS Linux and Windows from the relea
 
 ## Motives
 
-I was missing a no nonsense CLI for quick questions that would do well with an AI answering them. Subrub was a solution to that problem. I initially wanted to have it send a notification but to do that it would have been very difficult to keep it fully cross-platform. As such it is still only half developed however all the core features still work just fine.
+I was missing a no nonsense CLI for quick questions that would do well with an AI answering them. Subrub was a solution to that problem. I initially wanted to have it send a notification but to do that it would have been very difficult to keep it fully cross-platform. As such it is still only half developed however all the core features still work just fine. One of the things that I was really missing on linux was a way to search the web from the terminal. Subrub is a viable alternative to that.
