@@ -510,7 +510,8 @@ Config* parse_file(const char *filename) {
     
     Parser parser = {
         .lexer = lexer,
-        .config = config
+        .config = config,
+        .current_token = {.type = TOKEN_EOF, .value = NULL, .line = 0}
     };
     
     parse_config(&parser);
@@ -549,13 +550,14 @@ int main(int argc, char *argv[]){
 
     //detecting command line args
     for(int i = 1; i < argc; i++){
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0){
+            printf("Subrub\nUsage:\n-h --h       print this text\n-v --v       print more runtime information\n-d --dry     dry mode - does not send the query to any ai\n-c --config  generate an example config file\n\nDo not append any flags to have it Subrub run normally");
+            return 0;
+        }
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0){
               verbose = true;
         }
-        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0){
-            printf("help text\n");
-            return 0;
-        }
+
         if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--dry-run") == 0){
             dry = true;
             printf("subrub is running in dry mode\n");
@@ -852,7 +854,8 @@ TIME FOR THE RECORDING PART
         "- Answer questions concisely\n"
         "- Set timers, reminders, and alarms\n"
         "- Provide information lookups\n"
-        "- the transcription library is not so accurate, so try your best to handle nonsensical sentences by looking at other words that sound similar\n";
+        "- the transcription library is not so accurate, so try your best to handle nonsensical sentences by looking at other words that sound similar\n"
+        "- never ever use asterisks";
 
 
         curl_global_init(CURL_GLOBAL_ALL);
@@ -885,6 +888,7 @@ TIME FOR THE RECORDING PART
         snprintf(json_data, sizeof(json_data), 
         "{\n"
         "  \"model\": \"%s\",\n"
+        "  \"max_tokens\": 150,\n"
         "  \"messages\": [\n"
         "    {\n"
         "      \"role\": \"system\",\n"
@@ -909,7 +913,7 @@ TIME FOR THE RECORDING PART
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
         }
         if(verbose){
-            printf("%s\n\n", chunk);
+            printf("%s\n\n", chunk.memory);
         }
         cJSON *root = cJSON_Parse(chunk.memory);
         if(root == NULL){
