@@ -547,7 +547,7 @@ int main(int argc, char *argv[]){
         return 1;
     #endif
 
-
+    bool dry = false;
     //detecting command line args
     for(int i = 1; i < argc; i++){
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0){
@@ -918,6 +918,8 @@ TIME FOR THE RECORDING PART
         cJSON *root = cJSON_Parse(chunk.memory);
         if(root == NULL){
             const char *error_ptr = cJSON_GetErrorPtr();
+            printf("json parsing error");
+            exit(1);
         }
 
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
